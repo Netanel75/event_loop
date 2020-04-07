@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <stdbool.h>
 #include <string.h>
+#include <malloc.h>
 
 #include "exec_lib.h"
 
@@ -12,14 +13,18 @@
 
 static int epoll_fd;
 static unsigned int proccess_num = true;
-static async_cb_t proccess_async;
 
+struct event_cb {
+    sync_cb_t proccess_async;
+    int fd;
+};
 
-static void handle_epoll_read(int fd)
+static int handle_epoll_read(int fd, sync_cb_t cb)
 {
     struct mbuf buffer;
     char read_buffer[1024];
     int bytes_read;
+    int return_value;
 
     mbuf_init(&buffer, 0);
 
@@ -27,7 +32,7 @@ static void handle_epoll_read(int fd)
     {
         bytes_read = read(fd, &read_buffer, sizeof(read_buffer));
         if (bytes_read < 0) {
-            return;
+            return -1;
         }
 
         if (bytes_read == 0) {
@@ -41,10 +46,12 @@ static void handle_epoll_read(int fd)
         }
     } while (bytes_read);
 
-    proccess_async(&buffer);
+    return_value = cb(&buffer);
 
     mbuf_free(&buffer);
     proccess_num--;
+
+    return return_value;
 }
 
 static int exec_proc_sync(int fd, sync_cb_t sync_cb)
@@ -73,20 +80,29 @@ static int exec_proc_sync(int fd, sync_cb_t sync_cb)
     return ret;
 }
 
-static void exec_proc_async(int fd)
+static void exec_proc_async(int fd, sync_cb_t sync_cb)
 {
     struct epoll_event event;
 
+    struct event_cb *event_cb = malloc(sizeof(*event_cb));
+    if (!event_cb) {
+        printf("no memory\n");
+        return;
+    }
+
+    event_cb->proccess_async = sync_cb;
+    event_cb->fd = fd;
+
     memset(&event, 0, sizeof(event));
     event.events = EPOLLIN;
-    event.data.fd = fd;
+    event.data.ptr = event_cb;
 
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event)) {
         perror("couldn't add event to epoll");
     }
 }
 
-int exec_proccess(char **cmd, bool is_async, sync_cb_t sync_cb) //TODO: consider move cb instead
+int exec_proccess(char **cmd, bool is_async, sync_cb_t sync_cb)
 {
     int fork_pid;
     int stdout_pipe[2];
@@ -126,7 +142,7 @@ int exec_proccess(char **cmd, bool is_async, sync_cb_t sync_cb) //TODO: consider
     } else {
         close(stdout_pipe[1]);
         if (is_async) {
-            exec_proc_async(stdout_pipe[0]);
+            exec_proc_async(stdout_pipe[0], sync_cb);
         } else {
             return exec_proc_sync(stdout_pipe[0], sync_cb);
         }
@@ -134,9 +150,8 @@ int exec_proccess(char **cmd, bool is_async, sync_cb_t sync_cb) //TODO: consider
     return 0;
 }
 
-void init_event_loop(async_cb_t user_async)
+void init_event_loop(void)
 {
-    proccess_async = user_async;
     epoll_fd = epoll_create1(0);
     if (epoll_fd  < 0) {
        printf("error init epoll\n");
@@ -149,6 +164,7 @@ void start_event_loop(unsigned int number_of_dockers)
     int i;
     struct epoll_event events[MAX_EVENTS];
     int event_count;
+    struct event_cb *cb;
     proccess_num = number_of_dockers;
 
     while(proccess_num) {
@@ -158,7 +174,11 @@ void start_event_loop(unsigned int number_of_dockers)
             return;
         }
         for (i = 0; i < event_count; ++i) {
-            handle_epoll_read(events[i].data.fd);
+            cb = (struct event_cb*)events[i].data.ptr;
+            if (handle_epoll_read(cb->fd, cb->proccess_async) == -1) {
+                printf("error in  cb\n");
+            }
+            free(cb);
         }
     }
 }
