@@ -12,7 +12,7 @@
 #define MAX_EVENTS 5
 
 static int epoll_fd;
-static unsigned int proccess_num = true;
+static unsigned int proccess_num;
 
 struct event_cb {
     sync_cb_t proccess_async;
@@ -83,8 +83,10 @@ static int exec_proc_sync(int fd, sync_cb_t sync_cb)
 static void exec_proc_async(int fd, sync_cb_t sync_cb)
 {
     struct epoll_event event;
-
     struct event_cb *event_cb = malloc(sizeof(*event_cb));
+
+    ++proccess_num;
+
     if (!event_cb) {
         printf("no memory\n");
         return;
@@ -159,13 +161,12 @@ void init_event_loop(void)
     }
 }
 
-void start_event_loop(unsigned int number_of_dockers)
+void start_event_loop(void)
 {
     int i;
     struct epoll_event events[MAX_EVENTS];
     int event_count;
     struct event_cb *cb;
-    proccess_num = number_of_dockers;
 
     while(proccess_num) {
         event_count = epoll_wait(epoll_fd, events, MAX_EVENTS, 5000);

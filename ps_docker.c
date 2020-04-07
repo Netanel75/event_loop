@@ -41,7 +41,7 @@ int main()
     init_event_loop();
     exec_proccess(docker_list_args, false, ps_extract_ids);
     exec_proccess(docker_ps_args, true, proccess_async);
-    start_event_loop(1);
+    start_event_loop();
     destroy_event_loop();
 
     return 0;
