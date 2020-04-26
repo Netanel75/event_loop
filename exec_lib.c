@@ -24,7 +24,7 @@ static int handle_epoll_read(int fd, sync_cb_t cb)
     struct mbuf buffer;
     char read_buffer[1024];
     int bytes_read;
-    int return_value;
+    int return_value = 0;
 
     mbuf_init(&buffer, 0);
 
@@ -46,7 +46,9 @@ static int handle_epoll_read(int fd, sync_cb_t cb)
         }
     } while (bytes_read);
 
-    return_value = cb(&buffer);
+    if (cb) {
+        return_value = cb(&buffer);
+    }
 
     mbuf_free(&buffer);
     proccess_num--;
@@ -75,7 +77,11 @@ static int exec_proc_sync(int fd, sync_cb_t sync_cb)
 
     close(fd);
     wait(NULL);
-    ret = sync_cb(&buffer);
+
+    if (sync_cb) {
+        ret = sync_cb(&buffer);
+    }
+
     mbuf_free(&buffer);
     return ret;
 }
